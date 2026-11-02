@@ -3,20 +3,16 @@ from datetime import datetime
 import os
 import gspread
 from google.oauth2.service_account import Credentials
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
-import io
+import base64
 
 # ==========================================
 # ⚙️ 設定項目
 # ==========================================
 SPREADSHEET_NAME = "ヒヤリハット報告データ"  # 作成したスプレッドシート名
-DRIVE_FOLDER_ID = "1JFjrPHZ3bFJQpKl6XR7E4OJmsXj2gxik"  # ドライブのフォルダID
 # ==========================================
 
 SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive"
+    "https://www.googleapis.com/auth/spreadsheets"
 ]
 
 def get_credentials():
@@ -39,13 +35,13 @@ with st.form("near_miss_form", clear_on_submit=True):
     # 1. 名前入力
     name = st.text_input("氏名（お名前）", placeholder="例：山田 太郎")
     
-    # 2. 写真の状況説明
-    description = st.text_area("写真・状況の簡単な説明", placeholder="例：作業台の足元にコードが引っかかりそうになっていた。")
+    # 2. 状況説明
+    description = st.text_area("状況の簡単な説明", placeholder="例：作業台の足元にコードが引っかかりそうになっていた。")
     
-    # 3. 写真撮影（任意に変更）
+    # 3. 写真撮影
     st.write("---")
-    st.subheader("📷 現場の写真（任意・省略可能）")
-    camera_image = st.camera_input("タップして写真を撮影してください（※撮らなくても送信できます）")
+    st.subheader("📷 現場の写真（任意）")
+    camera_image = st.camera_input("タップして写真を撮影してください")
     
     submitted = st.form_submit_button("報告を送信する")
 
@@ -59,30 +55,21 @@ if submitted:
         try:
             creds = get_credentials()
             if creds is None:
-                st.error("認証情報（credentials.json または Secrets）が見つかりません。")
+                st.error("認証情報（Secrets）が見つかりません。")
             else:
                 with st.spinner("データを送信・保存しています..."):
-                    # 日時とファイル名の作成
+                    # 日時の作成
                     now = datetime.now()
                     timestamp_str = now.strftime("%Y-%m-%d %H:%M:%S")
-                    file_timestamp = now.strftime("%Y%m%d_%H%M%S")
                     
-                    image_filename = "画像なし"
-                    drive_link = "なし"
+                    image_data_str = "画像なし"
                     
-                    # 写真が撮影されている場合のみドライブにアップロードする処理を行う
+                    # 写真が撮影されている場合はBase64形式（文字列）に変換して保存
                     if camera_image is not None:
-                        safe_name = name.strip().replace(" ", "_").replace(" ", "_")
-                        image_filename = f"{safe_name}_{file_timestamp}.jpg"
-                        
-                        drive_service = build('drive', 'v3', credentials=creds)
-                        file_metadata = {
-                            'name': image_filename,
-                            'parents': [DRIVE_FOLDER_ID]
-                        }
-                        media = MediaIoBaseUpload(io.BytesIO(camera_image.getbuffer()), mimetype='image/jpeg', resumable=True)
-                        uploaded_file = drive_service.files().create(body=file_metadata, media_body=media, fields='id, webViewLink').execute()
-                        drive_link = uploaded_file.get('webViewLink')
+                        bytes_data = camera_image.getvalue()
+                        encoded_image = base64.b64encode(bytes_data).decode('utf-8')
+                        # スプレッドシートのセルに画像関数として埋め込む形式
+                        image_data_str = f"data:image/jpeg;base64,{encoded_image}"
                     
                     # Googleスプレッドシートへデータを追加
                     gc = gspread.authorize(creds)
@@ -92,8 +79,7 @@ if submitted:
                         timestamp_str,
                         name,
                         description,
-                        image_filename,
-                        drive_link
+                        image_data_str
                     ]
                     sheet.append_row(row_data)
                 
