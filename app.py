@@ -11,7 +11,7 @@ import io
 # ⚙️ 設定項目
 # ==========================================
 SPREADSHEET_NAME = "ヒヤリハット報告データ"  # 作成したスプレッドシート名
-DRIVE_FOLDER_ID = "ここにGoogleドライブのフォルダIDを貼り付けてください"  # 例: "1A2B3C_abcdefg..."
+DRIVE_FOLDER_ID = "1JFjrPHZ3bFJQpKl6XR7E4OJmsXj2gxik"  # 例: "1A2B3C_abcdefg..."
 # ==========================================
 
 SCOPES = [
