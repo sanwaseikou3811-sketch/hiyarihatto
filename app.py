@@ -11,7 +11,7 @@ import io
 # ⚙️ 設定項目
 # ==========================================
 SPREADSHEET_NAME = "ヒヤリハット報告データ"  # 作成したスプレッドシート名
-DRIVE_FOLDER_ID = "1JFjrPHZ3bFJQpKl6XR7E4OJmsXj2gxik"  # 例: "1A2B3C_abcdefg..."
+DRIVE_FOLDER_ID = "1JFjrPHZ3bFJQpKl6XR7E4OJmsXj2gxik"  # ドライブのフォルダID
 # ==========================================
 
 SCOPES = [
@@ -20,7 +20,13 @@ SCOPES = [
 ]
 
 def get_credentials():
-    if os.path.exists("credentials.json"):
+    # 1. Streamlit CloudのSecretsから読み込む（クラウド環境）
+    if "gcp_service_account" in st.secrets:
+        return Credentials.from_service_account_info(
+            st.secrets["gcp_service_account"], scopes=SCOPES
+        )
+    # 2. ローカルのcredentials.jsonファイルから読み込む（手元PC環境）
+    elif os.path.exists("credentials.json"):
         return Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
     return None
 
@@ -53,7 +59,7 @@ if submitted:
         try:
             creds = get_credentials()
             if creds is None:
-                st.error("認証情報（credentials.json）が見つかりません。")
+                st.error("認証情報（credentials.json または Secrets）が見つかりません。")
             else:
                 with st.spinner("データを送信・保存しています..."):
                     # 日時とファイル名の作成
