@@ -3,6 +3,8 @@ from datetime import datetime
 import os
 import gspread
 from google.oauth2.service_account import Credentials
+from PIL import Image
+import io
 import base64
 
 # ==========================================
@@ -65,10 +67,15 @@ if submitted:
                     
                     image_data_str = "画像なし"
                     
-                    # 写真が撮影されている場合はBase64形式（文字列）に変換して保存
+                    # 写真が撮影されている場合、縮小・圧縮して容量を抑える
                     if camera_image is not None:
-                        bytes_data = camera_image.getvalue()
-                        encoded_image = base64.b64encode(bytes_data).decode('utf-8')
+                        img = Image.open(camera_image)
+                        # 画像サイズを最大800x800ピクセルに縮小
+                        img.thumbnail((800, 800))
+                        buffered = io.BytesIO()
+                        # JPEG形式で圧縮保存
+                        img.save(buffered, format="JPEG", quality=70)
+                        encoded_image = base64.b64encode(buffered.getvalue()).decode('utf-8')
                         image_data_str = f"data:image/jpeg;base64,{encoded_image}"
                     
                     # Googleスプレッドシートへデータを追加
