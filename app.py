@@ -1,33 +1,27 @@
 import streamlit as st
 from datetime import datetime
-import os
+import base64
+import requests
 import gspread
 from google.oauth2.service_account import Credentials
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
-import io
 
 # ==========================================
 # ⚙️ 設定項目
 # ==========================================
-SPREADSHEET_NAME = "ヒヤリハット報告データ"  # 作成したスプレッドシート名
-DRIVE_FOLDER_ID = "1JFjrPHZ3bFJQpKl6XR7E4OJmsXj2gxik"  # GoogleドライブのフォルダID
+SPREADSHEET_NAME = "ヒヤリハット報告データ"  # スプレッドシート名
+IMGBB_API_KEY = "ここに取得したImgBBのAPIキーを入力"  # ← ★取得したAPIキーを設定
 # ==========================================
 
 SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive"
+    "https://www.googleapis.com/auth/spreadsheets"
 ]
 
 def get_credentials():
-    # 1. Streamlit CloudのSecretsから読み込む（クラウド環境）
+    # Streamlit Cloudの Secrets から認証情報を読み込む場合
     if "gcp_service_account" in st.secrets:
         return Credentials.from_service_account_info(
             st.secrets["gcp_service_account"], scopes=SCOPES
         )
-    # 2. ローカルのcredentials.jsonファイルから読み込む（手元PC環境）
-    elif os.path.exists("credentials.json"):
-        return Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
     return None
 
 st.set_page_config(page_title="ヒヤリハット報告フォーム", layout="centered")
@@ -36,20 +30,15 @@ st.title("⚠️ ヒヤリハット報告フォーム")
 st.write("現場でのヒヤリハット事例を報告してください。（ログイン不要）")
 
 with st.form("near_miss_form", clear_on_submit=True):
-    # 1. 名前入力
     name = st.text_input("氏名（お名前）", placeholder="例：山田 太郎")
-    
-    # 2. 状況説明
     description = st.text_area("状況の簡単な説明", placeholder="例：作業台の足元にコードが引っかかりそうになっていた。")
     
-    # 3. 写真撮影
     st.write("---")
     st.subheader("📷 現場の写真（任意）")
     camera_image = st.camera_input("タップして写真を撮影してください")
     
     submitted = st.form_submit_button("報告を送信する")
 
-# 送信ボタンが押された時の処理
 if submitted:
     if not name.strip():
         st.error("氏名を入力してください。")
@@ -59,54 +48,43 @@ if submitted:
         try:
             creds = get_credentials()
             if creds is None:
-                st.error("認証情報（Secrets）が見つかりません。")
+                st.error("認証情報（Secrets）が設定されていません。")
             else:
-                with st.spinner("データを送信・保存しています..."):
-                    # 日時の作成
+                with st.spinner("データを送信しています..."):
                     now = datetime.now()
                     timestamp_str = now.strftime("%Y-%m-%d %H:%M:%S")
                     
-                    file_link = "画像なし"
+                    image_url = "画像なし"
                     
-                    # 認証情報の適用
-                    gc = gspread.authorize(creds)
-                    drive_service = build('drive', 'v3', credentials=creds)
-                    
-                    # 写真が撮影されている場合、Googleドライブに保存する
+                    # 1. 写真がある場合、ImgBBにアップロードして公開URLを取得
                     if camera_image is not None:
-                        file_name = f"near_miss_{now.strftime('%Y%m%d_%H%M%S')}.jpg"
+                        bytes_data = camera_image.getvalue()
+                        base64_image = base64.b64encode(bytes_data).decode('utf-8')
                         
-                        file_metadata = {
-                            'name': file_name,
-                            'parents': [DRIVE_FOLDER_ID]
+                        url = "https://api.imgbb.com/1/upload"
+                        payload = {
+                            "key": IMGBB_API_KEY,
+                            "image": base64_image,
                         }
                         
-                        # 画像データをバッファから読み込み
-                        bytes_data = camera_image.getvalue()
-                        media = MediaIoBaseUpload(
-                            io.BytesIO(bytes_data),
-                            mimetype='image/jpeg',
-                            resumable=True
-                        )
+                        response = requests.post(url, data=payload)
+                        result = response.json()
                         
-                        # Googleドライブにアップロード
-                        uploaded_file = drive_service.files().create(
-                            body=file_metadata,
-                            media_body=media,
-                            fields='id, webViewLink'
-                        ).execute()
-                        
-                        # アップロードしたファイルの閲覧用URLを取得
-                        file_link = uploaded_file.get('webViewLink')
+                        if result.get("success"):
+                            # アップロードされた画像の閲覧用URLを取得
+                            image_url = result["data"]["url"]
+                        else:
+                            st.warning("画像のアップロードに失敗しましたが、テキストのみ記録します。")
                     
-                    # Googleスプレッドシートへデータを追加
+                    # 2. スプレッドシートにテキストと画像のURLを記録
+                    gc = gspread.authorize(creds)
                     sheet = gc.open(SPREADSHEET_NAME).sheet1
                     
                     row_data = [
                         timestamp_str,
                         name,
                         description,
-                        file_link
+                        image_url
                     ]
                     sheet.append_row(row_data)
                 
