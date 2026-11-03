@@ -3,14 +3,15 @@ from datetime import datetime
 import os
 import gspread
 from google.oauth2.service_account import Credentials
-from PIL import Image
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload
 import io
-import base64
 
 # ==========================================
 # ⚙️ 設定項目
 # ==========================================
 SPREADSHEET_NAME = "ヒヤリハット報告データ"  # 作成したスプレッドシート名
+DRIVE_FOLDER_ID = "1JFjrPHZ3bFJQpKl6XR7E4OJmsXj2gxik"  # GoogleドライブのフォルダID
 # ==========================================
 
 SCOPES = [
@@ -65,28 +66,47 @@ if submitted:
                     now = datetime.now()
                     timestamp_str = now.strftime("%Y-%m-%d %H:%M:%S")
                     
-                    image_data_str = "画像なし"
+                    file_link = "画像なし"
                     
-                    # 写真が撮影されている場合、縮小・圧縮して容量を抑える
+                    # 認証情報の適用
+                    gc = gspread.authorize(creds)
+                    drive_service = build('drive', 'v3', credentials=creds)
+                    
+                    # 写真が撮影されている場合、Googleドライブに保存する
                     if camera_image is not None:
-                        img = Image.open(camera_image)
-                        # 画像サイズを最大800x800ピクセルに縮小
-                        img.thumbnail((800, 800))
-                        buffered = io.BytesIO()
-                        # JPEG形式で圧縮保存
-                        img.save(buffered, format="JPEG", quality=70)
-                        encoded_image = base64.b64encode(buffered.getvalue()).decode('utf-8')
-                        image_data_str = f"data:image/jpeg;base64,{encoded_image}"
+                        file_name = f"near_miss_{now.strftime('%Y%m%d_%H%M%S')}.jpg"
+                        
+                        file_metadata = {
+                            'name': file_name,
+                            'parents': [DRIVE_FOLDER_ID]
+                        }
+                        
+                        # 画像データをバッファから読み込み
+                        bytes_data = camera_image.getvalue()
+                        media = MediaIoBaseUpload(
+                            io.BytesIO(bytes_data),
+                            mimetype='image/jpeg',
+                            resumable=True
+                        )
+                        
+                        # Googleドライブにアップロード
+                        uploaded_file = drive_service.files().create(
+                            body=file_metadata,
+                            media_body=media,
+                            fields='id, webViewLink'
+                        ).execute()
+                        
+                        # アップロードしたファイルの閲覧用URLを取得
+                        file_link = uploaded_file.get('webViewLink')
                     
                     # Googleスプレッドシートへデータを追加
-                    gc = gspread.authorize(creds)
                     sheet = gc.open(SPREADSHEET_NAME).sheet1
                     
                     row_data = [
                         timestamp_str,
                         name,
                         description,
-                        image_data_str
+                        file_link
                     ]
                     sheet.append_row(row_data)
                 
